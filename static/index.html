@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Smart Parking</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Barlow:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --road: #262c33;
+      --road2: #323a43;
+      --paint: #f2f4f5;
+      --bg: #e8ecef;
+      --ink: #16202a;
+      --mute: #66727d;
+      --free: #1e9e6a;
+      --booked: #e0a313;
+      --occ: #d9483b;
+      --sign: #0a4fb3;
+      --r: 14px
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.45 Barlow, system-ui, sans-serif;
+      padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 84px)
+    }
+
+    main {
+      max-width: 620px;
+      margin: 0 auto
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 16px 8px
+    }
+
+    .p {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: var(--sign);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font: 700 30px "Barlow Condensed", sans-serif;
+      flex: none
+    }
+
+    h1 {
+      margin: 0;
+      font: 700 26px "Barlow Condensed", sans-serif
+    }
+
+    #live {
+      color: var(--mute);
+      font-size: 13px
+    }
+
+    #who {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: right
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 6px 16px
+    }
+
+    .tab {
+      border: 2px solid transparent;
+      background: #fff;
+      border-radius: var(--r);
+      padding: 10px 12px;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+      cursor: pointer
+    }
+
+    button:focus-visible,
+    select:focus-visible,
+    input:focus-visible {
+      outline: 3px solid var(--sign);
+      outline-offset: 2px
+    }
+
+    .tab.on {
+      border-color: var(--sign)
+    }
+
+    .tab b {
+      display: block;
+      font: 700 18px "Barlow Condensed", sans-serif
+    }
+
+    .tab .n {
+      font-size: 13px;
+      color: var(--mute)
+    }
+
+    .tab .n strong {
+      color: var(--free);
+      font-size: 15px
+    }
+
+    .lot {
+      margin: 10px 16px;
+      background: var(--road);
+      border-radius: 18px;
+      padding: 14px 14px 10px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr)
+    }
+
+    .bay {
+      background: none;
+      border: 0;
+      border-left: 3px solid var(--paint);
+      padding: 12px 8px 14px;
+      color: var(--paint);
+      text-align: center;
+      font: inherit;
+      cursor: default;
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between
+    }
+
+    .bay:last-child {
+      border-right: 3px solid var(--paint)
+    }
+
+    .bay.free {
+      cursor: pointer
+    }
+
+    .bay.free:hover {
+      background: var(--road2)
+    }
+
+    .bay .no {
+      font: 700 44px/1 "Barlow Condensed", sans-serif
+    }
+
+    .bay .no small {
+      display: block;
+      font: 500 13px Barlow, sans-serif;
+      opacity: .7
+    }
+
+    .badge {
+      font-weight: 600;
+      font-size: 12px;
+      padding: 3px 9px;
+      border-radius: 99px;
+      color: #fff;
+      background: var(--c, #667)
+    }
+
+    .free .badge,
+    .b-ok {
+      --c: var(--free)
+    }
+
+    .booked .badge,
+    .b-wait {
+      --c: var(--booked);
+      color: #2a2000
+    }
+
+    .occupied .badge,
+    .b-bad {
+      --c: var(--occ)
+    }
+
+    .b-mute {
+      --c: #8a949c
+    }
+
+    .b-info {
+      --c: var(--sign)
+    }
+
+    .bay .note {
+      font-size: 12px;
+      opacity: .85;
+      min-height: 32px
+    }
+
+    .car {
+      width: 46px;
+      height: 20px;
+      border-radius: 7px 7px 4px 4px;
+      background: var(--occ);
+      opacity: 0
+    }
+
+    .occupied .car {
+      opacity: 1
+    }
+
+    .booked .car {
+      opacity: 1;
+      background: transparent;
+      border: 2px dashed var(--booked)
+    }
+
+    .hint {
+      margin: 6px 18px;
+      color: var(--mute);
+      font-size: 14px
+    }
+
+    .card {
+      margin: 12px 16px;
+      background: #fff;
+      border-radius: var(--r);
+      padding: 14px
+    }
+
+    .card h3 {
+      margin: 0 0 6px;
+      font: 700 20px "Barlow Condensed", sans-serif
+    }
+
+    .kv {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 3px 0;
+      font-size: 14px
+    }
+
+    .kv span:first-child {
+      color: var(--mute)
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 12px 16px
+    }
+
+    .stat {
+      background: #fff;
+      border-radius: var(--r);
+      padding: 10px 12px
+    }
+
+    .stat b {
+      display: block;
+      font: 700 28px/1.1 "Barlow Condensed", sans-serif
+    }
+
+    .stat span {
+      font-size: 13px;
+      color: var(--mute)
+    }
+
+    .sub {
+      display: flex;
+      gap: 6px;
+      padding: 4px 16px;
+      overflow-x: auto
+    }
+
+    .sub button {
+      border: 0;
+      background: #fff;
+      border-radius: 99px;
+      padding: 7px 14px;
+      font: 600 14px Barlow, sans-serif;
+      cursor: pointer;
+      white-space: nowrap
+    }
+
+    .sub button.on {
+      background: var(--ink);
+      color: #fff
+    }
+
+    .tw {
+      overflow-x: auto;
+      margin: 10px 16px;
+      background: #fff;
+      border-radius: var(--r)
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 13px
+    }
+
+    th,
+    td {
+      padding: 8px 10px;
+      text-align: left;
+      white-space: nowrap;
+      border-bottom: 1px solid #e3e7ea
+    }
+
+    th {
+      color: var(--mute);
+      font-weight: 600
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 0;
+      border-top: 1px solid #e3e7ea;
+      flex-wrap: wrap;
+      font-size: 14px
+    }
+
+    .btns {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center
+    }
+
+    .btn {
+      font: 600 13px Barlow, sans-serif;
+      border: 1.5px solid var(--ink);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 9px;
+      padding: 7px 10px;
+      cursor: pointer
+    }
+
+    .btn.lo {
+      background: var(--ink);
+      color: #fff
+    }
+
+    .btn.red {
+      border-color: var(--occ);
+      color: var(--occ)
+    }
+
+    .btn.go {
+      background: var(--free);
+      border-color: var(--free);
+      color: #fff
+    }
+
+    .otp-box {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      background: #f3f6f9;
+      border: 1.5px solid #cfd8e0
+    }
+
+    .otp-box .otp-hint {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--sign)
+    }
+
+    .otp-row {
+      display: flex;
+      gap: 8px;
+      align-items: center
+    }
+
+    .otp-row input {
+      max-width: 130px;
+      padding: 8px 10px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-align: center
+    }
+
+    nav.bn {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #fff;
+      border-top: 1px solid #d5dbe0;
+      display: flex;
+      padding-bottom: env(safe-area-inset-bottom);
+      z-index: 4
+    }
+
+    nav.bn button {
+      flex: 1;
+      border: 0;
+      background: none;
+      padding: 14px 4px;
+      font: 700 16px "Barlow Condensed", sans-serif;
+      color: var(--mute);
+      cursor: pointer
+    }
+
+    nav.bn button.on {
+      color: var(--sign);
+      box-shadow: inset 0 3px 0 var(--sign)
+    }
+
+    .ov {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 16, 22, .55);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      z-index: 5
+    }
+
+    .ov[hidden] {
+      display: none
+    }
+
+    .sheet {
+      background: #fff;
+      width: 100%;
+      max-width: 560px;
+      max-height: 92vh;
+      overflow: auto;
+      border-radius: 20px 20px 0 0;
+      padding: 18px 16px calc(env(safe-area-inset-bottom) + 18px);
+      animation: up .22s ease-out
+    }
+
+    @keyframes up {
+      from {
+        transform: translateY(40px);
+        opacity: .4
+      }
+    }
+
+    @media (prefers-reduced-motion:reduce) {
+      .sheet {
+        animation: none
+      }
+    }
+
+    .sheet h2 {
+      margin: 0 0 2px;
+      font: 700 24px "Barlow Condensed", sans-serif
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 14px;
+      margin: 12px 0 4px
+    }
+
+    input,
+    select {
+      width: 100%;
+      font: inherit;
+      padding: 11px 12px;
+      border: 1.5px solid #c5ccd2;
+      border-radius: 10px;
+      background: #fff;
+      color: var(--ink)
+    }
+
+    .two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px
+    }
+
+    .pay {
+      width: 100%;
+      margin-top: 18px;
+      padding: 14px;
+      border: 0;
+      border-radius: 12px;
+      background: var(--sign);
+      color: #fff;
+      font: 700 18px "Barlow Condensed", sans-serif;
+      cursor: pointer
+    }
+
+    .pay:disabled {
+      opacity: .6
+    }
+
+    .link {
+      background: none;
+      border: 0;
+      color: var(--sign);
+      font: 600 15px Barlow, sans-serif;
+      padding: 12px 0 0;
+      width: 100%;
+      cursor: pointer
+    }
+
+    .err {
+      color: var(--occ);
+      font-size: 14px;
+      margin-top: 10px;
+      min-height: 18px
+    }
+
+    .rcpt {
+      border: 2px dashed #b9c2c9;
+      border-radius: 12px;
+      padding: 14px;
+      margin-top: 12px
+    }
+
+    .rcpt div {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 4px 0;
+      font-size: 15px
+    }
+
+    .rcpt div span:first-child {
+      color: var(--mute)
+    }
+
+    .ok {
+      color: var(--free);
+      font-weight: 600
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <header>
+      <div class="p">P</div>
+      <div>
+        <h1>Smart Parking</h1>
+        <div id="live">Connecting…</div>
+      </div>
+      <div id="who"></div>
+    </header>
+    <div id="app"></div>
+  </main>
+  <nav class="bn" id="nav"></nav>
+  <div class="ov" id="ov" hidden>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const tm = i => new Date(i).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dt = i => i ? new Date(i).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    const rid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(16).slice(2));
+    const DEV = localStorage.getItem('pk_dev') || (localStorage.setItem('pk_dev', rid()), localStorage.getItem('pk_dev'));
+    const devInfo = () => ({
+      device_id: DEV, user_agent: navigator.userAgent, platform: navigator.platform || '', screen: screen.width + 'x' + screen.height,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, language: navigator.language
+    });
+    const S = {
+      token: localStorage.getItem('pk_token'), user: JSON.parse(localStorage.getItem('pk_user') || 'null'), view: 'slots', asub: 'overview',
+      cur: 1, data: [], rate: 20, sim: true, mine: [], adm: {}, busy: false
+    };
+    const isAdmin = () => S.user && S.user.role === 'admin';
+    const chip = (s) => {
+      const m = { FREE: 'ok', BOOKED: 'wait', CHECKED_IN: 'info', COMPLETED: 'mute', CANCELLED: 'mute', CANCELLED_BY_ADMIN: 'mute', EXPIRED_NO_SHOW: 'bad', OCCUPIED: 'bad', PAID_DUMMY: 'ok', REFUNDED_DUMMY: 'mute' };
+      return `<span class="badge b-${m[s] || 'mute'}">${esc(String(s).replace(/_/g, ' '))}</span>`
+    };
+
+    async function api(path, body, method) {
+      const h = {}; if (body) h['Content-Type'] = 'application/json'; if (S.token) h.Authorization = 'Bearer ' + S.token;
+      const r = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: h, body: body ? JSON.stringify(body) : undefined });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (r.status === 401 && S.token && path !== '/api/auth/login') logout(true);
+        const d = j.detail; throw new Error(typeof d === 'string' ? d : Array.isArray(d) ? d.map(x => x.msg).join(', ') : 'Request failed')
+      }
+      return j;
+    }
+    function setSession(j) { S.token = j.token; S.user = j.user; localStorage.setItem('pk_token', j.token); localStorage.setItem('pk_user', JSON.stringify(j.user)) }
+    function logout(expired) { S.token = null; S.user = null; S.view = 'slots'; localStorage.removeItem('pk_token'); localStorage.removeItem('pk_user'); if (!expired) closeSheet(); render() }
+
+    /* ---------- data loading ---------- */
+    async function load(force = false) {
+      if (S.busy && !force) return;
+      S.busy = true;
+      try {
+        const j = await api('/api/buildings'); S.data = j.buildings; S.rate = j.rate_per_hour; S.sim = j.simulator;
+        $('#live').textContent = 'Live, updated ' + new Date().toLocaleTimeString();
+        if (S.view === 'mine' && S.user) S.mine = await api('/api/me/bookings');
+        if (S.view === 'admin' && isAdmin()) await loadAdmin();
+        render()
+      } catch (e) { $('#live').textContent = 'Offline, retrying…' }
+      finally { S.busy = false }
+    }
+    async function loadAdmin() {
+      const m = { overview: 'stats', bookings: 'bookings', transactions: 'transactions', users: 'users' };
+      try { S.adm[S.asub] = await api('/api/admin/' + m[S.asub]) } catch (e) { }
+    }
+
+    /* ---------- render ---------- */
+    function render() {
+      const active = document.activeElement;
+      const keepId = active && active.dataset && active.dataset.otpInput ? active.id : null;
+      const keepVal = keepId ? active.value : '';
+
+      $('#who').innerHTML = S.user ? `<span>${esc(S.user.name)}</span><button class="btn" data-a="logout">Log out</button>` : `<button class="btn lo" data-a="login">Log in</button>`;
+      const tabs = [['slots', 'Slots']]; if (S.user) tabs.push(['mine', 'My bookings']); if (isAdmin()) tabs.push(['admin', 'Admin']);
+      $('#nav').innerHTML = tabs.map(t => `<button class="${S.view === t[0] ? 'on' : ''}" data-v="${t[0]}">${t[1]}</button>`).join('');
+      $('#app').innerHTML = ({ slots: rSlots, mine: rMine, admin: rAdmin }[S.view] || rSlots)();
+
+      if (keepId) { const el = document.getElementById(keepId); if (el) { el.value = keepVal; el.focus() } }
+    }
+    function rSlots() {
+      const b = S.data.find(x => x.building_id === S.cur);
+      let h = `<nav class="tabs" aria-label="Buildings">${S.data.map(x => `<button class="tab ${x.building_id === S.cur ? 'on' : ''}" data-b="${x.building_id}"><b>Building ${x.building_id}</b><span class="n"><strong>${x.free}</strong> of ${x.total} free</span></button>`).join('')}</nav>`;
+      if (!b) return h;
+      h += `<section class="lot" aria-live="polite">${b.slots.map(s => {
+        const note = s.status === 'FREE' ? (S.user ? 'Tap to book' : 'Log in to book') : s.status === 'BOOKED' ? (s.booking ? `Arrive by ${tm(s.booking.expires_at)}<br>${esc(s.booking.vehicle_tail)}` : 'Booked') : 'Vehicle parked';
+        return `<button class="bay ${s.status.toLowerCase()}" data-s="${s.slot_number}" aria-label="Slot ${s.slot_number} ${s.status}"><div class="no"><small>Slot</small>${s.slot_number}</div><div class="car"></div><span class="badge">${s.status}</span><span class="note">${note}</span></button>`
+      }).join('')}</section>`;
+      if (!S.user) h += `<p class="hint">You can look at live slots without an account. Log in to book one.</p>`;
+      return h;
+    }
+    function rMine() {
+      if (!S.mine.length) return `<div class="card"><h3>No bookings yet</h3><div class="kv"><span>Pick a free slot on the Slots tab to make your first booking.</span></div></div>`;
+      return S.mine.map(b => {
+        const booked = b.status === 'BOOKED';
+        const otpOpen = booked && b.otp_pending;
+        return `<div class="card"><h3>Building ${b.building_id}, Slot ${b.slot_number} ${chip(b.status)}</h3>
+   <div class="kv"><span>Vehicle</span><span>${esc(b.vehicle_number)}</span></div>
+   <div class="kv"><span>Parking time</span><span>${tm(b.start_time)} to ${tm(b.end_time)}</span></div>
+   ${booked ? `<div class="kv"><span>Arrive by</span><span>${tm(b.expires_at)}</span></div>` : ''}
+   ${b.gate_verified_at ? `<div class="kv"><span>Gate status</span><span class="ok">Unlocked at ${tm(b.gate_verified_at)}</span></div>` : ''}
+   <div class="kv"><span>Paid</span><span>₹${b.dummy_payment.amount} (${esc(b.dummy_payment.method)})</span></div>
+   <div class="kv"><span>Transaction</span><span>${esc(b.dummy_payment.payment_id)}</span></div>
+   ${otpOpen ? `<div class="otp-box">
+     <div class="otp-hint">Enter the 4-digit code shown on Building ${b.building_id} LCD:</div>
+     <div class="otp-row">
+       <input id="otp-${b._id}" data-otp-input="1" inputmode="numeric" maxlength="4" placeholder="0000" aria-label="Building ${b.building_id} gate code">
+       <button class="btn go" data-verify="${b._id}">Unlock Gate</button>
+       <button class="btn" data-arrived="${b._id}">New Code</button>
+     </div>
+   </div>`: ''}
+   ${booked ? `<div class="btns" style="margin-top:10px">
+     ${!otpOpen ? `<button class="btn go" data-arrived="${b._id}">I'm Here (Get Gate Code)</button>` : ''}
+     <button class="btn red" data-cancel="${b._id}">Cancel booking</button>
+   </div>`: ''}</div>`
+      }).join('');
+    }
+    const tbl = (cols, rows) => `<div class="tw"><table><thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${c[2] ? c[1](r) : esc(c[1](r))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    function rAdmin() {
+      const subs = ['overview', 'bookings', 'transactions', 'users'];
+      let h = `<div class="sub">${subs.map(s => `<button class="${S.asub === s ? 'on' : ''}" data-sub="${s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join('')}</div>`;
+      const d = S.adm[S.asub]; if (!d) return h + `<p class="hint">Loading…</p>`;
+      if (S.asub === 'overview') {
+        const sl = d.slots || {};
+        h += `<div class="stats"><div class="stat"><b>${sl.FREE || 0}</b><span>Free slots</span></div><div class="stat"><b>${sl.BOOKED || 0}</b><span>Booked</span></div><div class="stat"><b>${sl.OCCUPIED || 0}</b><span>Occupied</span></div>
+    <div class="stat"><b>₹${d.revenue}</b><span>Dummy revenue</span></div><div class="stat"><b>${d.users}</b><span>Users</span></div>
+    <div class="stat"><b>${d.esp32.online ? 'Online' : 'Offline'}</b><span>ESP32${d.esp32.last_seen ? ', seen ' + tm(d.esp32.last_seen) : ', never seen'}</span></div></div>
+    <div class="card"><h3>Building gates</h3><div class="btns">${[1, 2, 3].map(b => `<button class="btn lo" data-gate="${b}">Open Bldg ${b} Gate</button>`).join('')}</div></div>
+    <div class="card"><h3>Slot controls</h3>${S.data.flatMap(b => b.slots.map(s => `<div class="row"><span>B${b.building_id} S${s.slot_number} ${chip(s.status)} IR ${s.ir_occupied ? 'LOW' : 'HIGH'}</span><span class="btns">
+      ${S.sim ? `<button class="btn lo" data-sim="${b.building_id}-${s.slot_number}-1">Simulate Arrival (IR LOW)</button><button class="btn" data-sim="${b.building_id}-${s.slot_number}-0">Simulate Leave (IR HIGH)</button>` : ''}
+      <button class="btn red" data-rel="${b.building_id}-${s.slot_number}">Force free</button></span></div>`)).join('')}</div>`;
+      } else if (S.asub === 'bookings') {
+        h += tbl([['Created', r => dt(r.created_at)], ['User', r => r.user_name], ['Vehicle', r => r.vehicle_number], ['Slot', r => `B${r.building_id}-S${r.slot_number}`],
+        ['Start', r => dt(r.start_time)], ['Hours', r => r.duration_hours], ['Status', r => chip(r.status), 1], ['Txn', r => r.dummy_payment.payment_id]], d);
+      } else if (S.asub === 'transactions') {
+        h += tbl([['Time', r => dt(r.created_at)], ['Txn ID', r => r.txn_id], ['User', r => r.user_name + ' (' + r.user_email + ')'], ['Amount', r => '₹' + r.amount], ['Method', r => r.method],
+        ['Status', r => chip(r.status), 1], ['Slot', r => `B${r.building_id}-S${r.slot_number}`], ['Vehicle', r => r.vehicle_number], ['Device ID', r => r.device_id],
+        ['IP', r => r.ip_address], ['Platform', r => r.device_info.platform], ['Screen', r => r.device_info.screen], ['Timezone', r => r.device_info.timezone], ['Browser', r => r.device_info.user_agent]], d);
+      } else {
+        h += tbl([['Name', r => r.name], ['Email', r => r.email], ['Phone', r => r.phone], ['Role', r => r.role], ['Status', r => chip(r.active === false ? 'BLOCKED' : 'ACTIVE').replace('b-mute', 'b-' + (r.active === false ? 'bad' : 'ok')), 1],
+        ['Joined', r => dt(r.created_at)], ['', r => r.role === 'admin' ? '' : `<button class="btn" data-tog="${r._id}">${r.active === false ? 'Unblock' : 'Block'}</button>`, 1]], d);
+      }
+      return h;
+    }
+
+    /* ---------- events ---------- */
+    document.addEventListener('click', async e => {
+      const t = e.target, q = s => t.closest(s); let el;
+      try {
+        if (el = q('[data-a]')) { el.dataset.a === 'logout' ? logout() : openAuth('login') }
+        else if (el = q('[data-v]')) { S.view = el.dataset.v; render(); load(true) }
+        else if (el = q('.tab')) { S.cur = +el.dataset.b; render() }
+        else if (el = q('.bay')) {
+          const s = +el.dataset.s, b = S.data.find(x => x.building_id === S.cur).slots.find(x => x.slot_number === s);
+          if (b.status !== 'FREE') return; S.user ? openBook(S.cur, s) : openAuth('login', () => openBook(S.cur, s))
+        }
+        else if (el = q('[data-sub]')) { S.asub = el.dataset.sub; render(); await loadAdmin(); render() }
+        else if (el = q('[data-arrived]')) {
+          const r = await api(`/api/me/bookings/${el.dataset.arrived}/arrived`, {}); await load(true);
+          const inp = document.getElementById('otp-' + el.dataset.arrived); if (inp) inp.focus()
+        }
+        else if (el = q('[data-verify]')) {
+          const id = el.dataset.verify, inp = document.getElementById('otp-' + id);
+          const r = await api(`/api/me/bookings/${id}/verify-gate`, { code: inp ? inp.value : '' });
+          alert(`Gate opened for Building ${r.building_id}! Drive into Slot ${r.slot_number}.`); load(true)
+        }
+        else if (el = q('[data-gate]')) { await api(`/api/admin/buildings/${el.dataset.gate}/open-gate`, {}); alert(`Triggered Building ${el.dataset.gate} gate`) }
+        else if (el = q('[data-cancel]')) { if (confirm('Cancel this booking? The dummy payment will be refunded.')) { await api(`/api/me/bookings/${el.dataset.cancel}/cancel`, {}); load(true) } }
+        else if (el = q('[data-sim]')) { const [b, s, i] = el.dataset.sim.split('-'); await api('/api/simulate/ir', { building_id: +b, slot_number: +s, ir_occupied: i === '1' }); load(true) }
+        else if (el = q('[data-rel]')) { const [b, s] = el.dataset.rel.split('-'); await api(`/api/admin/slots/${b}/${s}/release`, {}); load(true) }
+        else if (el = q('[data-tog]')) { await api(`/api/admin/users/${el.dataset.tog}/toggle`, {}); await loadAdmin(); render() }
+      } catch (x) { alert(x.message) }
+    });
+    function closeSheet() { $('#ov').hidden = true }
+    $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') closeSheet() });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet() });
+
+    /* ---------- auth sheet ---------- */
+    function openAuth(mode, then) {
+      const reg = mode === 'register';
+      $('#sheet').innerHTML = `<h2>${reg ? 'Create your account' : 'Log in'}</h2><div style="color:var(--mute);font-size:14px">${then ? 'You need an account to book a slot.' : 'Book slots and see your bookings.'}</div>
+  ${reg ? `<label for="a-name">Full name</label><input id="a-name" autocomplete="name" maxlength="60"><label for="a-phone">Phone</label><input id="a-phone" type="tel" autocomplete="tel" maxlength="15">` : ''}
+  <label for="a-email">Email</label><input id="a-email" type="email" autocomplete="email">
+  <label for="a-pw">Password${reg ? ' (6+ characters)' : ''}</label><input id="a-pw" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}">
+  <div class="err" id="err" role="alert"></div><button class="pay" id="go">${reg ? 'Create account' : 'Log in'}</button>
+  <button class="link" id="sw">${reg ? 'I already have an account' : 'New here? Create an account'}</button><button class="link" id="cl" style="color:var(--mute)">Cancel</button>`;
+      $('#sw').onclick = () => openAuth(reg ? 'login' : 'register', then); $('#cl').onclick = closeSheet;
+      $('#go').onclick = async () => {
+        $('#go').disabled = true; $('#err').textContent = '';
+        try {
+          const body = { email: $('#a-email').value, password: $('#a-pw').value };
+          if (reg) { body.name = $('#a-name').value; body.phone = $('#a-phone').value }
+          setSession(await api(reg ? '/api/auth/register' : '/api/auth/login', body)); closeSheet(); render(); then ? then() : load(true)
+        }
+        catch (x) { $('#err').textContent = x.message; $('#go').disabled = false }
+      };
+      $('#ov').hidden = false; ($('#a-name') || $('#a-email')).focus();
+    }
+
+    /* ---------- booking sheet ---------- */
+    function openBook(b, s) {
+      $('#sheet').innerHTML = `<h2>Book Building ${b}, Slot ${s}</h2><div style="color:var(--mute);font-size:14px">Booking as ${esc(S.user.name)} · ₹${S.rate} per hour (dummy payment)</div>
+  <div class="two"><div><label for="f-start">Start</label><select id="f-start"><option value="0">Now</option><option value="60">+1 hr</option><option value="120">+2 hr</option><option value="180">+3 hr</option></select></div>
+  <div><label for="f-dur">Duration</label><select id="f-dur">${[1, 2, 3, 4, 5, 6, 8, 12].map(h => `<option value="${h}">${h} hr</option>`).join('')}</select></div></div>
+  <div class="two"><div><label for="f-grace">Grace window</label><select id="f-grace">${[5, 6, 7, 8, 9, 10].map(m => `<option ${m === 7 ? 'selected' : ''} value="${m}">${m} min</option>`).join('')}</select></div>
+  <div><label for="f-pm">Pay with</label><select id="f-pm"><option value="DUMMY_UPI">Dummy UPI</option><option value="DUMMY_CARD">Dummy card</option><option value="DUMMY_WALLET">Dummy wallet</option></select></div></div>
+  <label for="f-veh">Vehicle number</label><input id="f-veh" placeholder="MH12AB1234" maxlength="15" autocapitalize="characters">
+  <div class="kv" style="margin-top:12px"><span>Device ID saved with the payment</span><span>${esc(DEV.slice(0, 8))}…</span></div>
+  <div class="err" id="err" role="alert"></div><button class="pay" id="pay"></button><button class="link" id="cl" style="color:var(--mute)">Cancel</button>`;
+      const price = () => $('#pay').textContent = `Pay Dummy ₹${S.rate * $('#f-dur').value} & Book`;
+      $('#f-dur').onchange = price; price(); $('#cl').onclick = closeSheet;
+      $('#pay').onclick = async () => {
+        const p = $('#pay'); p.disabled = true; $('#err').textContent = '';
+        try {
+          receipt(await api('/api/bookings', {
+            building_id: b, slot_number: s, vehicle_number: $('#f-veh').value, start_offset_minutes: +$('#f-start').value,
+            duration_hours: +$('#f-dur').value, grace_minutes: +$('#f-grace').value, payment_method: $('#f-pm').value, device: devInfo()
+          })); load(true)
+        }
+        catch (x) { $('#err').textContent = x.message; p.disabled = false; load(true) }
+      };
+      $('#ov').hidden = false; $('#f-veh').focus();
+    }
+    function receipt(r) {
+      const p = r.dummy_payment;
+      $('#sheet').innerHTML = `<h2>Slot booked</h2><div class="ok">Payment received (dummy)</div><div class="rcpt">
+  <div><span>Slot</span><span>Building ${r.building_id}, Slot ${r.slot_number}</span></div><div><span>Name</span><span>${esc(r.user_name)}</span></div>
+  <div><span>Vehicle</span><span>${esc(r.vehicle_number)}</span></div><div><span>Starts</span><span>${tm(r.start_time)}</span></div><div><span>Ends</span><span>${tm(r.end_time)}</span></div>
+  <div><span>Arrive by</span><span>${tm(r.expires_at)} (${r.grace_minutes} min grace)</span></div><div><span>Amount</span><span>₹${p.amount} via ${esc(p.method)}</span></div>
+  <div><span>Transaction ID</span><span>${esc(p.payment_id)}</span></div></div><button class="pay" id="done">Done</button>`;
+      $('#done').onclick = closeSheet;
+    }
+    render(); load(true);
+    setInterval(() => { if (!document.hidden) load() }, 4000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) load() });
+  </script>
+</body>
+
+</html>
