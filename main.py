@@ -58,9 +58,19 @@ async def trigger_building_gate(building_id: int) -> int:
     return int(doc.get("seq", 1))
 
 
+_last_expiry_run: float = 0.0
+
+
 # ---------------------------------------------------------------- expiry
-async def expire_no_shows() -> int:
+async def expire_no_shows(force: bool = False) -> int:
     """BOOKED + no vehicle + past start_time+grace -> EXPIRED_NO_SHOW, slot FREE."""
+    global _last_expiry_run
+    import time
+    curr_time = time.time()
+    if not force and (curr_time - _last_expiry_run < 10.0):
+        return 0
+    _last_expiry_run = curr_time
+
     t, n = now(), 0
     async for b in d.bookings.find({"status": "BOOKED", "expires_at": {"$lt": t}}):
         freed = await d.slots.find_one_and_update(
@@ -80,7 +90,7 @@ async def expire_no_shows() -> int:
 async def expiry_loop():
     while True:
         try:
-            await expire_no_shows()
+            await expire_no_shows(force=True)
         except Exception as e:
             print("expiry loop error:", e)
         await asyncio.sleep(20)
@@ -90,6 +100,9 @@ async def seed_admin():
     email = os.getenv("ADMIN_EMAIL", "").strip().lower()
     pw = os.getenv("ADMIN_PASSWORD", "")
     if not email or not pw:
+        return
+    # Check if admin already exists to avoid slow PBKDF2 hashing on serverless start
+    if await d.users.find_one({"email": email}, {"_id": 1}):
         return
     salt, h = auth.hash_pw(pw)
     await d.users.update_one(
@@ -147,12 +160,15 @@ async def building_view():
     return ser(out)
 
 
-async def esp32_compact_state():
+async def esp32_compact_state(cached_slots=None):
     """Lightweight slots + active LCD gate OTP + gate trigger seq for ESP32."""
     t = now()
-    all_slots = await d.slots.find(
-        {}, {"building_id": 1, "slot_number": 1, "status": 1}
-    ).sort([("building_id", 1), ("slot_number", 1)]).to_list(50)
+    if cached_slots is not None:
+        all_slots = cached_slots
+    else:
+        all_slots = await d.slots.find(
+            {}, {"building_id": 1, "slot_number": 1, "status": 1}
+        ).sort([("building_id", 1), ("slot_number", 1)]).to_list(50)
 
     active_codes: dict[int, str] = {}
     async for b in d.bookings.find(
@@ -502,10 +518,12 @@ async def telemetry(body: TelemetryIn, request: Request):
     slot_map = {(s["building_id"], s["slot_number"]): s for s in all_slots}
 
     updated = []
+    any_changed = False
     for r in body.slots:
         curr = slot_map.get((r.building_id, r.slot_number))
         if not curr:
             st = await apply_ir(r.building_id, r.slot_number, r.ir_occupied)
+            any_changed = True
         else:
             curr_ir = bool(curr.get("ir_occupied", False))
             curr_status = curr.get("status", "FREE")
@@ -516,11 +534,15 @@ async def telemetry(body: TelemetryIn, request: Request):
             )
             if changed:
                 st = await apply_ir(r.building_id, r.slot_number, r.ir_occupied)
+                curr["status"] = st
+                curr["ir_occupied"] = r.ir_occupied
+                any_changed = True
             else:
                 st = curr_status
         updated.append({"building_id": r.building_id, "slot_number": r.slot_number, "status": st})
 
-    return {"updated": updated, **(await esp32_compact_state())}
+    cached = None if any_changed else all_slots
+    return {"updated": updated, **(await esp32_compact_state(cached_slots=cached))}
 
 
 @app.get("/api/esp32/state", dependencies=[Depends(require_key)])

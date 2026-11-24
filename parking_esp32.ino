@@ -44,7 +44,7 @@ const unsigned long GATE_STEP_MS   = 15;     // Smooth 5-deg sweep step interval
 const unsigned long GATE_SETTLE_MS = 250;    // Brief settle before detaching
 
 const unsigned long SAMPLE_MS      = 100;    // IR poll interval (3 samples = 300ms debounce)
-const unsigned long HEARTBEAT_MS   = 5000;   // Sync bookings/OTP + heartbeat every 5s
+const unsigned long HEARTBEAT_MS   = 2000;   // Fast 2s sync for bookings/OTP + heartbeat
 const unsigned long RETRY_MS       = 1500;   // Fast retry if POST failed or Wi-Fi was reconnecting
 const unsigned long WIFI_RETRY_MS  = 5000;   // Non-blocking Wi-Fi reconnect cooldown
 

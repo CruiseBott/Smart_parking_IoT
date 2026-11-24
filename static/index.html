@@ -790,7 +790,7 @@
       $('#done').onclick = closeSheet;
     }
     render(); load(true);
-    setInterval(() => { if (!document.hidden) load() }, 4000);
+    setInterval(() => { if (!document.hidden) load() }, 2000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) load() });
   </script>
 </body>
