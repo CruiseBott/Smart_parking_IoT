@@ -63,7 +63,8 @@ _last_expiry_run: float = 0.0
 
 # ---------------------------------------------------------------- expiry
 async def expire_no_shows(force: bool = False) -> int:
-    """BOOKED + no vehicle + past start_time+grace -> EXPIRED_NO_SHOW, slot FREE."""
+    """BOOKED + no vehicle + past grace → EXPIRED_NO_SHOW.
+    GATE_OPENED + 5-min window lapsed without IR → EXPIRED_NO_SHOW, slot FREE."""
     global _last_expiry_run
     import time
     curr_time = time.time()
@@ -72,6 +73,8 @@ async def expire_no_shows(force: bool = False) -> int:
     _last_expiry_run = curr_time
 
     t, n = now(), 0
+
+    # Expire BOOKED bookings past grace period
     async for b in d.bookings.find({"status": "BOOKED", "expires_at": {"$lt": t}}):
         freed = await d.slots.find_one_and_update(
             {"active_booking_id": b["_id"], "status": "BOOKED", "ir_occupied": False},
@@ -84,6 +87,24 @@ async def expire_no_shows(force: bool = False) -> int:
                           "gate_otp": None, "gate_otp_expires_at": None}},
             )
             n += 1
+
+    # Expire GATE_OPENED bookings whose 5-min arrival window has lapsed (Option B)
+    gate_window_cutoff = t - __import__("datetime").timedelta(seconds=GATE_OPEN_WINDOW_SECONDS)
+    async for b in d.bookings.find({
+        "status": "GATE_OPENED",
+        "gate_opened_at": {"$lt": gate_window_cutoff},
+    }):
+        freed = await d.slots.find_one_and_update(
+            {"active_booking_id": b["_id"], "status": "GATE_OPENED", "ir_occupied": False},
+            {"$set": {"status": "FREE", "active_booking_id": None, "updated_at": t}},
+        )
+        if freed:
+            await d.bookings.update_one(
+                {"_id": b["_id"], "status": "GATE_OPENED"},
+                {"$set": {"status": "EXPIRED_NO_SHOW", "expired_at": t}},
+            )
+            n += 1
+
     return n
 
 
@@ -199,29 +220,80 @@ async def esp32_compact_state(cached_slots=None):
 
 
 # ---------------------------------------------------------------- IR logic
+GATE_OPEN_WINDOW_SECONDS = 300  # 5 minutes to drive in after gate opens (Option B)
+
+
 async def apply_ir(building_id: int, slot_number: int, ir: bool) -> str:
+    """
+    Slot state machine (Options A + B + C combined):
+      - IR HIGH on a BOOKED slot   → ignored (gate not verified yet, could be sensor noise)
+      - IR HIGH on a GATE_OPENED slot → CHECKED_IN only if gate_opened_at is within 5 min window
+      - IR HIGH on FREE slot        → OCCUPIED (foreign vehicle)
+      - IR LOW  on OCCUPIED slot    → FREE (vehicle left, booking COMPLETED if one exists)
+    """
     t = now()
     key = {"building_id": building_id, "slot_number": slot_number}
-    current = await d.slots.find_one(key, {"status": 1})
+    current = await d.slots.find_one(key, {"status": 1, "active_booking_id": 1})
     if not current:
         raise HTTPException(404, "Slot not found")
 
+    curr_status = current.get("status", "FREE")
+
     if ir:
-        before = await d.slots.find_one_and_update(
-            {**key, "status": {"$in": ["FREE", "BOOKED"]}},
-            {"$set": {"status": "OCCUPIED", "ir_occupied": True, "updated_at": t}},
-            return_document=ReturnDocument.BEFORE,
-        )
-        if before and before.get("active_booking_id"):
-            await d.bookings.update_one(
-                {"_id": before["active_booking_id"], "status": "BOOKED"},
-                {"$set": {"status": "CHECKED_IN", "checked_in_at": t,
-                          "gate_otp": None, "gate_otp_expires_at": None}},
+        # ── Option C: GATE_OPENED → CHECKED_IN (with Option B time-window guard) ──
+        if curr_status == "GATE_OPENED" and current.get("active_booking_id"):
+            bk = await d.bookings.find_one(
+                {"_id": current["active_booking_id"], "status": "GATE_OPENED"},
+                {"gate_opened_at": 1},
             )
-        elif not before:
+            if bk:
+                gate_opened_at = bk.get("gate_opened_at")
+                within_window = (
+                    gate_opened_at is not None
+                    and (t - gate_opened_at).total_seconds() <= GATE_OPEN_WINDOW_SECONDS
+                )
+                if within_window:
+                    # Option A satisfied (gate_verified_at was set when OTP passed)
+                    # Option B satisfied (within 5-minute arrival window)
+                    await d.slots.update_one(
+                        key, {"$set": {"status": "OCCUPIED", "ir_occupied": True, "updated_at": t}}
+                    )
+                    await d.bookings.update_one(
+                        {"_id": current["active_booking_id"], "status": "GATE_OPENED"},
+                        {"$set": {"status": "CHECKED_IN", "checked_in_at": t}},
+                    )
+                    return "OCCUPIED"
+                else:
+                    # Window expired: treat as no-show, free the slot
+                    await d.slots.update_one(
+                        key,
+                        {"$set": {"status": "FREE", "ir_occupied": True,
+                                  "active_booking_id": None, "updated_at": t}},
+                    )
+                    await d.bookings.update_one(
+                        {"_id": current["active_booking_id"], "status": "GATE_OPENED"},
+                        {"$set": {"status": "EXPIRED_NO_SHOW", "expired_at": t}},
+                    )
+                    return "OCCUPIED"
+
+        # ── BOOKED slot: IR triggered but gate not verified — ignore, just record ir flag ──
+        if curr_status == "BOOKED":
             await d.slots.update_one(key, {"$set": {"ir_occupied": True, "updated_at": t}})
-        return "OCCUPIED"
+            return "BOOKED"
+
+        # ── FREE slot: foreign vehicle parked without a booking ──
+        if curr_status == "FREE":
+            await d.slots.update_one(
+                key, {"$set": {"status": "OCCUPIED", "ir_occupied": True, "updated_at": t}}
+            )
+            return "OCCUPIED"
+
+        # Already OCCUPIED or any other state — just update the IR flag
+        await d.slots.update_one(key, {"$set": {"ir_occupied": True, "updated_at": t}})
+        return curr_status
+
     else:
+        # IR went HIGH (vehicle left)
         before = await d.slots.find_one_and_update(
             {**key, "status": "OCCUPIED"},
             {"$set": {"status": "FREE", "ir_occupied": False,
@@ -235,7 +307,7 @@ async def apply_ir(building_id: int, slot_number: int, ir: bool) -> str:
             )
         elif not before:
             await d.slots.update_one(key, {"$set": {"ir_occupied": False, "updated_at": t}})
-        return "FREE" if before else current["status"]
+        return "FREE" if before else curr_status
 
 
 # ---------------------------------------------------------------- auth
@@ -347,7 +419,7 @@ async def booking_arrived(booking_id: str, user: dict = Depends(current_user)):
     otp_exp = t + timedelta(seconds=GATE_OTP_TTL_SECONDS)
 
     bk = await d.bookings.find_one_and_update(
-        {"_id": oid, "user_id": user["_id"], "status": "BOOKED", "expires_at": {"$gt": t}},
+        {"_id": oid, "user_id": user["_id"], "status": {"$in": ["BOOKED", "GATE_OPENED"]}, "expires_at": {"$gt": t}},
         {"$set": {"gate_otp": code, "gate_otp_expires_at": otp_exp, "gate_otp_requested_at": t}},
     )
     if not bk:
@@ -370,7 +442,8 @@ async def verify_gate_otp(booking_id: str, body: GateVerifyIn, user: dict = Depe
         raise HTTPException(404, "Booking not found")
 
     t = now()
-    bk = await d.bookings.find_one({"_id": oid, "user_id": user["_id"], "status": "BOOKED"})
+    # Accept BOOKED (OTP not yet verified) or GATE_OPENED (re-verifying after window may lapse)
+    bk = await d.bookings.find_one({"_id": oid, "user_id": user["_id"], "status": {"$in": ["BOOKED", "GATE_OPENED"]}})
     if not bk:
         raise HTTPException(409, "Booking is no longer active")
 
@@ -382,12 +455,25 @@ async def verify_gate_otp(booking_id: str, body: GateVerifyIn, user: dict = Depe
     if not secrets.compare_digest(expected, body.code):
         raise HTTPException(400, f"Wrong code. Check the LCD at Building {bk['building_id']}.")
 
+    # Option A + C: OTP consumed → transition booking to GATE_OPENED, record gate_verified_at + gate_opened_at
     consumed = await d.bookings.find_one_and_update(
-        {"_id": oid, "status": "BOOKED", "gate_otp": body.code},
-        {"$set": {"gate_otp": None, "gate_otp_expires_at": None, "gate_verified_at": t}},
+        {"_id": oid, "status": {"$in": ["BOOKED", "GATE_OPENED"]}, "gate_otp": body.code},
+        {"$set": {
+            "status": "GATE_OPENED",
+            "gate_otp": None,
+            "gate_otp_expires_at": None,
+            "gate_verified_at": t,
+            "gate_opened_at": t,   # Option B: 5-min arrival window starts now
+        }},
     )
     if not consumed:
         raise HTTPException(409, "Code already used or booking changed")
+
+    # Also update slot status to GATE_OPENED so the IR logic knows to allow CHECKED_IN
+    await d.slots.update_one(
+        {"active_booking_id": oid, "status": {"$in": ["BOOKED", "GATE_OPENED"]}},
+        {"$set": {"status": "GATE_OPENED", "updated_at": t}},
+    )
 
     seq = await trigger_building_gate(bk["building_id"])
     return {
@@ -406,13 +492,15 @@ async def cancel_booking(booking_id: str, user: dict = Depends(current_user)):
         raise HTTPException(404, "Booking not found")
     t = now()
     bk = await d.bookings.find_one_and_update(
-        {"_id": oid, "user_id": user["_id"], "status": "BOOKED"},
+        {"_id": oid, "user_id": user["_id"], "status": {"$in": ["BOOKED", "GATE_OPENED"]}},
         {"$set": {"status": "CANCELLED", "cancelled_at": t,
                   "gate_otp": None, "gate_otp_expires_at": None}})
     if not bk:
         raise HTTPException(409, "Only bookings that haven't started parking can be cancelled")
-    await d.slots.update_one({"active_booking_id": oid, "status": "BOOKED"},
-                             {"$set": {"status": "FREE", "active_booking_id": None, "updated_at": t}})
+    await d.slots.update_one(
+        {"active_booking_id": oid, "status": {"$in": ["BOOKED", "GATE_OPENED"]}},
+        {"$set": {"status": "FREE", "active_booking_id": None, "updated_at": t}}
+    )
     await d.transactions.update_one({"booking_id": oid}, {"$set": {"status": "REFUNDED_DUMMY", "refunded_at": t}})
     return {"ok": True}
 
@@ -529,7 +617,7 @@ async def telemetry(body: TelemetryIn, request: Request):
             curr_status = curr.get("status", "FREE")
             changed = (
                 (curr_ir != r.ir_occupied)
-                or (r.ir_occupied and curr_status in ["FREE", "BOOKED"])
+                or (r.ir_occupied and curr_status in ["FREE", "BOOKED", "GATE_OPENED"])
                 or (not r.ir_occupied and curr_status == "OCCUPIED")
             )
             if changed:

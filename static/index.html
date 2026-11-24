@@ -19,6 +19,7 @@
       --mute: #66727d;
       --free: #1e9e6a;
       --booked: #e0a313;
+      --gate-open: #0a9a6a;
       --occ: #d9483b;
       --sign: #0a4fb3;
       --r: 14px
@@ -191,6 +192,12 @@
       color: #2a2000
     }
 
+    .gate_opened .badge,
+    .b-gate {
+      --c: var(--gate-open);
+      color: #fff
+    }
+
     .occupied .badge,
     .b-bad {
       --c: var(--occ)
@@ -226,6 +233,18 @@
       opacity: 1;
       background: transparent;
       border: 2px dashed var(--booked)
+    }
+
+    .gate_opened .car {
+      opacity: 1;
+      background: transparent;
+      border: 2px solid var(--gate-open);
+      animation: gate-pulse 1s ease-in-out infinite alternate
+    }
+
+    @keyframes gate-pulse {
+      from { border-color: var(--gate-open); box-shadow: 0 0 0 0 rgba(10,154,106,.4) }
+      to   { border-color: #07c47e;          box-shadow: 0 0 0 6px rgba(10,154,106,0) }
     }
 
     .hint {
@@ -589,7 +608,7 @@
     };
     const isAdmin = () => S.user && S.user.role === 'admin';
     const chip = (s) => {
-      const m = { FREE: 'ok', BOOKED: 'wait', CHECKED_IN: 'info', COMPLETED: 'mute', CANCELLED: 'mute', CANCELLED_BY_ADMIN: 'mute', EXPIRED_NO_SHOW: 'bad', OCCUPIED: 'bad', PAID_DUMMY: 'ok', REFUNDED_DUMMY: 'mute' };
+      const m = { FREE: 'ok', BOOKED: 'wait', GATE_OPENED: 'gate', CHECKED_IN: 'info', COMPLETED: 'mute', CANCELLED: 'mute', CANCELLED_BY_ADMIN: 'mute', EXPIRED_NO_SHOW: 'bad', OCCUPIED: 'bad', PAID_DUMMY: 'ok', REFUNDED_DUMMY: 'mute' };
       return `<span class="badge b-${m[s] || 'mute'}">${esc(String(s).replace(/_/g, ' '))}</span>`
     };
 
@@ -642,7 +661,7 @@
       let h = `<nav class="tabs" aria-label="Buildings">${S.data.map(x => `<button class="tab ${x.building_id === S.cur ? 'on' : ''}" data-b="${x.building_id}"><b>Building ${x.building_id}</b><span class="n"><strong>${x.free}</strong> of ${x.total} free</span></button>`).join('')}</nav>`;
       if (!b) return h;
       h += `<section class="lot" aria-live="polite">${b.slots.map(s => {
-        const note = s.status === 'FREE' ? (S.user ? 'Tap to book' : 'Log in to book') : s.status === 'BOOKED' ? (s.booking ? `Arrive by ${tm(s.booking.expires_at)}<br>${esc(s.booking.vehicle_tail)}` : 'Booked') : 'Vehicle parked';
+        const note = s.status === 'FREE' ? (S.user ? 'Tap to book' : 'Log in to book') : s.status === 'BOOKED' ? (s.booking ? `Arrive by ${tm(s.booking.expires_at)}<br>${esc(s.booking.vehicle_tail)}` : 'Booked') : s.status === 'GATE_OPENED' ? '🟢 Gate open — drive in!' : 'Vehicle parked';
         return `<button class="bay ${s.status.toLowerCase()}" data-s="${s.slot_number}" aria-label="Slot ${s.slot_number} ${s.status}"><div class="no"><small>Slot</small>${s.slot_number}</div><div class="car"></div><span class="badge">${s.status}</span><span class="note">${note}</span></button>`
       }).join('')}</section>`;
       if (!S.user) h += `<p class="hint">You can look at live slots without an account. Log in to book one.</p>`;
@@ -652,12 +671,14 @@
       if (!S.mine.length) return `<div class="card"><h3>No bookings yet</h3><div class="kv"><span>Pick a free slot on the Slots tab to make your first booking.</span></div></div>`;
       return S.mine.map(b => {
         const booked = b.status === 'BOOKED';
+        const gateOpen = b.status === 'GATE_OPENED';
         const otpOpen = booked && b.otp_pending;
         return `<div class="card"><h3>Building ${b.building_id}, Slot ${b.slot_number} ${chip(b.status)}</h3>
    <div class="kv"><span>Vehicle</span><span>${esc(b.vehicle_number)}</span></div>
    <div class="kv"><span>Parking time</span><span>${tm(b.start_time)} to ${tm(b.end_time)}</span></div>
    ${booked ? `<div class="kv"><span>Arrive by</span><span>${tm(b.expires_at)}</span></div>` : ''}
    ${b.gate_verified_at ? `<div class="kv"><span>Gate status</span><span class="ok">Unlocked at ${tm(b.gate_verified_at)}</span></div>` : ''}
+   ${gateOpen ? `<div class="kv" style="color:var(--gate-open);font-weight:600"><span>🟢 Gate is open!</span><span>Drive into Slot ${b.slot_number} within 5 minutes</span></div>` : ''}
    <div class="kv"><span>Paid</span><span>₹${b.dummy_payment.amount} (${esc(b.dummy_payment.method)})</span></div>
    <div class="kv"><span>Transaction</span><span>${esc(b.dummy_payment.payment_id)}</span></div>
    ${otpOpen ? `<div class="otp-box">
@@ -671,7 +692,10 @@
    ${booked ? `<div class="btns" style="margin-top:10px">
      ${!otpOpen ? `<button class="btn go" data-arrived="${b._id}">I'm Here (Get Gate Code)</button>` : ''}
      <button class="btn red" data-cancel="${b._id}">Cancel booking</button>
-   </div>`: ''}</div>`
+   </div>`: ''}
+   ${gateOpen ? `<div class="btns" style="margin-top:10px">
+     <button class="btn" data-arrived="${b._id}">Re-send Gate Code</button>
+   </div>` : ''}</div>`
       }).join('');
     }
     const tbl = (cols, rows) => `<div class="tw"><table><thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${c[2] ? c[1](r) : esc(c[1](r))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
