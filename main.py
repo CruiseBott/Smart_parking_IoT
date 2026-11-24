@@ -193,7 +193,7 @@ async def esp32_compact_state(cached_slots=None):
 
     active_codes: dict[int, str] = {}
     async for b in d.bookings.find(
-        {"status": "BOOKED", "gate_otp": {"$ne": None}, "gate_otp_expires_at": {"$gt": t}},
+        {"status": {"$in": ["BOOKED", "GATE_OPENED"]}, "gate_otp": {"$ne": None}, "gate_otp_expires_at": {"$gt": t}},
         {"building_id": 1, "gate_otp": 1},
     ).sort("gate_otp_requested_at", -1):
         bid = b["building_id"]
@@ -417,9 +417,17 @@ async def booking_arrived(booking_id: str, user: dict = Depends(current_user)):
     t = now()
     code = f"{secrets.randbelow(9000) + 1000}"
     otp_exp = t + timedelta(seconds=GATE_OTP_TTL_SECONDS)
+    gate_window_cutoff = t - timedelta(seconds=GATE_OPEN_WINDOW_SECONDS)
 
     bk = await d.bookings.find_one_and_update(
-        {"_id": oid, "user_id": user["_id"], "status": {"$in": ["BOOKED", "GATE_OPENED"]}, "expires_at": {"$gt": t}},
+        {
+            "_id": oid,
+            "user_id": user["_id"],
+            "$or": [
+                {"status": "BOOKED", "expires_at": {"$gt": t}},
+                {"status": "GATE_OPENED", "gate_opened_at": {"$gte": gate_window_cutoff}},
+            ],
+        },
         {"$set": {"gate_otp": code, "gate_otp_expires_at": otp_exp, "gate_otp_requested_at": t}},
     )
     if not bk:

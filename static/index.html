@@ -672,7 +672,8 @@
       return S.mine.map(b => {
         const booked = b.status === 'BOOKED';
         const gateOpen = b.status === 'GATE_OPENED';
-        const otpOpen = booked && b.otp_pending;
+        const canOtp = booked || gateOpen;
+        const otpOpen = canOtp && b.otp_pending;
         return `<div class="card"><h3>Building ${b.building_id}, Slot ${b.slot_number} ${chip(b.status)}</h3>
    <div class="kv"><span>Vehicle</span><span>${esc(b.vehicle_number)}</span></div>
    <div class="kv"><span>Parking time</span><span>${tm(b.start_time)} to ${tm(b.end_time)}</span></div>
@@ -689,12 +690,19 @@
        <button class="btn" data-arrived="${b._id}">New Code</button>
      </div>
    </div>`: ''}
-   ${booked ? `<div class="btns" style="margin-top:10px">
-     ${!otpOpen ? `<button class="btn go" data-arrived="${b._id}">I'm Here (Get Gate Code)</button>` : ''}
+   ${booked && !otpOpen ? `<div class="btns" style="margin-top:10px">
+     <button class="btn go" data-arrived="${b._id}">I'm Here (Get Gate Code)</button>
      <button class="btn red" data-cancel="${b._id}">Cancel booking</button>
    </div>`: ''}
-   ${gateOpen ? `<div class="btns" style="margin-top:10px">
+   ${booked && otpOpen ? `<div class="btns" style="margin-top:10px">
+     <button class="btn red" data-cancel="${b._id}">Cancel booking</button>
+   </div>`: ''}
+   ${gateOpen && !otpOpen ? `<div class="btns" style="margin-top:10px">
      <button class="btn" data-arrived="${b._id}">Re-send Gate Code</button>
+     <button class="btn red" data-cancel="${b._id}">Cancel booking</button>
+   </div>` : ''}
+   ${gateOpen && otpOpen ? `<div class="btns" style="margin-top:10px">
+     <button class="btn red" data-cancel="${b._id}">Cancel booking</button>
    </div>` : ''}</div>`
       }).join('');
     }
