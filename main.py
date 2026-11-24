@@ -105,9 +105,12 @@ async def seed_admin():
 async def lifespan(_: FastAPI):
     await d.init_db()
     await seed_admin()
-    task = asyncio.create_task(expiry_loop())
+    task = None
+    if not os.getenv("VERCEL"):
+        task = asyncio.create_task(expiry_loop())
     yield
-    task.cancel()
+    if task:
+        task.cancel()
 
 
 app = FastAPI(title="Smart Parking", lifespan=lifespan)
@@ -492,9 +495,31 @@ async def heartbeat(request: Request):
 async def telemetry(body: TelemetryIn, request: Request):
     await heartbeat(request)
     await expire_no_shows()
-    updated = [{"building_id": r.building_id, "slot_number": r.slot_number,
-                "status": await apply_ir(r.building_id, r.slot_number, r.ir_occupied)}
-               for r in body.slots]
+
+    all_slots = await d.slots.find(
+        {}, {"building_id": 1, "slot_number": 1, "status": 1, "ir_occupied": 1}
+    ).to_list(50)
+    slot_map = {(s["building_id"], s["slot_number"]): s for s in all_slots}
+
+    updated = []
+    for r in body.slots:
+        curr = slot_map.get((r.building_id, r.slot_number))
+        if not curr:
+            st = await apply_ir(r.building_id, r.slot_number, r.ir_occupied)
+        else:
+            curr_ir = bool(curr.get("ir_occupied", False))
+            curr_status = curr.get("status", "FREE")
+            changed = (
+                (curr_ir != r.ir_occupied)
+                or (r.ir_occupied and curr_status in ["FREE", "BOOKED"])
+                or (not r.ir_occupied and curr_status == "OCCUPIED")
+            )
+            if changed:
+                st = await apply_ir(r.building_id, r.slot_number, r.ir_occupied)
+            else:
+                st = curr_status
+        updated.append({"building_id": r.building_id, "slot_number": r.slot_number, "status": st})
+
     return {"updated": updated, **(await esp32_compact_state())}
 
 

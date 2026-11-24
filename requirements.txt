@@ -4,3 +4,4 @@ motor>=3.4
 dnspython>=2.4
 python-dotenv>=1.0
 PyJWT>=2.8
+pydantic>=2.0

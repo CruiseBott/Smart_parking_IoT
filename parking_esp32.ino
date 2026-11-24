@@ -21,7 +21,7 @@
 // ---------- EDIT THESE ----------
 const char* WIFI_SSID  = "YOUR_WIFI_NAME";
 const char* WIFI_PASS  = "YOUR_WIFI_PASSWORD";
-const char* SERVER_URL = "https://your-app.onrender.com";   // no trailing slash (or http://192.168.x.x:8000 for local test)
+const char* SERVER_URL = "https://your-app.vercel.app";   // update with your Vercel deployment URL (no trailing slash)
 const char* API_KEY    = "same-value-as-ESP32_API_KEY";
 // --------------------------------
 
@@ -50,6 +50,10 @@ const unsigned long WIFI_RETRY_MS  = 5000;   // Non-blocking Wi-Fi reconnect coo
 
 LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
 Servo gateServo;
+WiFiClientSecure secureClient;
+WiFiClient plainClient;
+HTTPClient http;
+bool httpConfigured = false;
 
 bool ir[3][3];                 // debounced physical IR state (true = LOW = occupied)
 uint8_t cnt[3][3];             // consecutive opposite-sample counter
@@ -300,25 +304,31 @@ bool sendTelemetry() {
   serializeJson(doc, body);
 
   String url = String(SERVER_URL) + "/api/esp32/telemetry";
-
-  WiFiClientSecure secure;
-  WiFiClient plain;
-  HTTPClient http;
-  http.setReuse(false);
-  http.setTimeout(15000);
-  http.setConnectTimeout(8000);
-
   bool isHttps = strncmp(SERVER_URL, "https", 5) == 0;
+
+  if (!httpConfigured) {
+    if (isHttps) {
+      secureClient.setInsecure();
+    }
+    http.setReuse(true);
+    http.setTimeout(15000);
+    http.setConnectTimeout(8000);
+    httpConfigured = true;
+  }
+
   if (isHttps) {
-    secure.setInsecure();
-    if (!http.begin(secure, url)) {
-      Serial.println("HTTPS begin() failed");
-      return false;
+    if (!http.connected()) {
+      if (!http.begin(secureClient, url)) {
+        Serial.println("HTTPS begin() failed");
+        return false;
+      }
     }
   } else {
-    if (!http.begin(plain, url)) {
-      Serial.println("HTTP begin() failed");
-      return false;
+    if (!http.connected()) {
+      if (!http.begin(plainClient, url)) {
+        Serial.println("HTTP begin() failed");
+        return false;
+      }
     }
   }
 
@@ -327,7 +337,9 @@ bool sendTelemetry() {
   int code = http.POST(body);
   bool ok = handleHttpResponse(code, http);
 
-  http.end();
+  if (!ok || code < 0) {
+    http.end();
+  }
   return ok;
 }
 

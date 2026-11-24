@@ -9,6 +9,8 @@ ENV/
 .env.*
 !.env.example
 !_.env.example
+.vercel/
+.vercel
 
 # Python Cache & Bytecode
 __pycache__/
